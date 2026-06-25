@@ -1,50 +1,90 @@
 # Context Gatekeeper
 
-MCP-based context management service for AI agents - keeps agents in the **100k smart zone**.
+MCP-based context management service for AI agents - keeps agents in the **100k token smart zone**.
 
 Universal installation - works with **all MCP-compatible agents**: Cursor, Claude Desktop, Cline, Continue, Claude Code, and more.
 
 > **Note**: 中文用户请参考 [README.zh.md](README.zh.md)
 
+## Table of Contents
+
+- [Quick Start](#quick-start)
+- [Features](#features)
+- [Installation](#installation)
+- [Configuration](#configuration)
+- [Tools Reference](#tools-reference)
+- [Architecture](#architecture)
+- [Troubleshooting](#troubleshooting)
+- [Best Practices](#best-practices)
+- [Development](#development)
+
 ## Quick Start
 
-### Installation
+### 1. Install
 
 ```bash
-# Global installation (recommended)
 npm install -g context-gatekeeper
-
-# Build
 npm run build
 ```
 
-### First Use
+### 2. Configure Your Agent
 
-1. **Configure your MCP agent** (see [Installation](#installation) below)
+Add to your MCP config:
 
-2. **Set up environment variables** (optional but recommended):
+**Cursor** (`.cursor/mcp.json`):
+```json
+{
+  "mcpServers": {
+    "context-gatekeeper": {
+      "command": "node",
+      "args": ["<path-to>/node_modules/context-gatekeeper/dist/mcp/server.js"]
+    }
+  }
+}
+```
+
+**Claude Desktop** (`~/Library/Application Support/Claude/claude_desktop_config.json`):
+```json
+{
+  "mcpServers": {
+    "context-gatekeeper": {
+      "command": "node",
+      "args": ["<path-to>/node_modules/context-gatekeeper/dist/mcp/server.js"]
+    }
+  }
+}
+```
+
+**Claude Code** (`.mcp.json`):
+```json
+{
+  "mcpServers": {
+    "context-gatekeeper": {
+      "command": "node",
+      "args": ["<path-to>/node_modules/context-gatekeeper/dist/mcp/server.js"]
+    }
+  }
+}
+```
+
+### 3. Set Environment Variables (Optional)
 
 ```bash
-# Required for token-based permission control (recommended)
+# Authentication (Watchdog Security)
 export CG_READ_TOKEN="your-read-only-token"
 export CG_WRITE_TOKEN="your-write-token"
-export CG_WATCHDOG_TOKEN="your-watchdog-token" # Full access token
+export CG_WATCHDOG_TOKEN="your-watchdog-token"
 
 # For semantic search (optional - defaults to TF-IDF)
 export OPENAI_API_KEY="your-openai-key"
 # or
 export COHERE_API_KEY="your-cohere-key"
-
-# Database location (optional)
-export DATA_DIR="/path/to/data"
 ```
 
-3. **Restart your agent** to load the MCP server
-
-4. **Store your first memory**:
+### 4. Use It
 
 ```typescript
-// Store a project constraint
+// Store a constraint
 memory_store({
   content: "Use TypeScript strict mode for all new files",
   priority: "constraint",
@@ -63,117 +103,82 @@ memory_recall({
 
 - **Universal MCP**: Works with all MCP-compatible agents
 - **14+ Tools**: Store, recall, search, anchor, compress, batch operations, intelligent recall, dual-mode execution
-- **Smart Search**: Keyword + semantic (TF-IDF/OpenAI/Cohere) + hybrid search
+- **Smart Search**: Keyword + semantic (TF-IDF/OpenAI/Cohere) + hybrid + BM25 search
 - **Priority System**: anchored > constraint > decision > preference > fact
 - **Auto Deduplication**: SHA256 hash-based duplicate detection
 - **Context Compression**: Automatic cleanup of low-priority memories
 - **Watchdog Security**: Token-based permission control for tools
 - **After-Chain Automation**: Auto-trigger tools after other tools complete
 - **Pure JavaScript**: No native compilation required (sql.js)
+- **Structured Logging**: JSON output for log aggregation
 
 ### Phase 1: AutoSkill-Style Constraint Extraction
 
-- Analyzes conversation turns to extract durable constraints
-- Only processes user messages (ignores one-shot requests)
-- Identifies preferences, workflows, and rules
-- Confidence scoring for extracted constraints
+Analyzes conversation turns to extract durable constraints:
+
+```typescript
+memory_extract({
+  conversation_turns: [
+    { role: "user", content: "I always prefer using TypeScript strict mode." },
+    { role: "assistant", content: "I'll enable strict mode." }
+  ],
+  extract_mode: "all",
+  min_confidence: 0.5
+});
+```
 
 ### Phase 2: MemGate-Style Intelligent Recall
 
-- Semantic similarity + learned relevance patterns
-- MLP-inspired interaction scoring
-- Configurable relevance threshold (default 0.07)
-- Soft guidance context generation
+Semantic similarity + learned relevance patterns:
+
+```typescript
+intelligent_recall({
+  query: "API implementation guidelines",
+  conversation_context: "Building a new REST service",
+  relevance_threshold: 0.07,
+  enable_soft_guidance: true
+});
+```
 
 ### Phase 3: MPR-Style Dual-Mode Execution
 
-- Soft guidance: Memory injection for better decisions
-- Hard admissibility: Constraint validation before actions
-- Dual mode: Combines both approaches
-- Violation detection with suggestions
+Soft guidance + hard admissibility checks:
+
+```typescript
+dual_mode_execute({
+  action: "Use var keyword for this variable",
+  context: "Writing JavaScript code",
+  mode: "dual",
+  soft_guidance_style: "concise"
+});
+```
 
 ## Installation
 
-### 1. Install Package
+### Global Installation (Recommended)
 
 ```bash
-# Global installation (recommended)
 npm install -g context-gatekeeper
-
-# Or local installation
-npm install context-gatekeeper
 npm run build
 ```
 
-### 2. Configure Your MCP Agent
-
-#### Cursor
-
-Add to `.cursor/mcp.json`:
-
-```json
-{
-  "mcpServers": {
-    "context-gatekeeper": {
-      "command": "node",
-      "args": ["<path-to>/node_modules/context-gatekeeper/dist/mcp/server.js"]
-    }
-  }
-}
-```
-
-For global installation, find the path with:
+To find the global installation path:
 ```bash
 npm root -g
 ```
 
-#### Claude Desktop (macOS/Windows)
-
-Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
-
-```json
-{
-  "mcpServers": {
-    "context-gatekeeper": {
-      "command": "node",
-      "args": ["<path-to>/node_modules/context-gatekeeper/dist/mcp/server.js"]
-    }
-  }
-}
-```
-
-#### Cline / Continue
-
-Add to your MCP settings:
-
-```json
-{
-  "mcpServers": {
-    "context-gatekeeper": {
-      "command": "node",
-      "args": ["<path-to>/node_modules/context-gatekeeper/dist/mcp/server.js"]
-    }
-  }
-}
-```
-
-#### Claude Code
+### Local Installation
 
 ```bash
-# Add to ~/.claude/settings.json or project .mcp.json
-{
-  "mcpServers": {
-    "context-gatekeeper": {
-      "command": "node",
-      "args": ["<path-to>/node_modules/context-gatekeeper/dist/mcp/server.js"]
-    }
-  }
-}
+npm install context-gatekeeper
+npm run build
 ```
 
-### 3. Restart Your Agent
+### Verify Installation
 
-After configuration, restart your MCP agent to load the server.
+```bash
+node dist/mcp/server.js --help
+```
 
 ## Configuration
 
@@ -198,14 +203,14 @@ If no tokens are set, the server operates in permissive mode (all tools accessib
 | `OPENAI_EMBEDDING_BASE_URL` | Custom OpenAI-compatible endpoint | https://api.openai.com/v1 |
 | `CG_EMBEDDING_PROVIDER` | Embedding provider: `tfidf`, `openai`, `cohere` | `tfidf` |
 
-#### LLM Summarization
+#### Logging
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `OPENAI_API_KEY` | OpenAI API key for summarization | - |
-| `ANTHROPIC_API_KEY` | Anthropic API key for summarization | - |
-
-Note: LLM provider is configured via the `configure_llm` tool at runtime, not environment variables.
+| `CG_LOG_LEVEL` | Minimum log level: `trace`, `debug`, `info`, `warn`, `error` | `info` |
+| `CG_LOG_PRETTY` | Pretty-print JSON output (`true` or `1`) | - |
+| `CG_LOG_TO_FILE` | Enable file-based logging (`true` or `1`) | - |
+| `CG_LOG_FILE_PATH` | Custom log file path | `context-gatekeeper.log` |
 
 #### Database
 
@@ -219,15 +224,6 @@ Default `DATA_DIR` locations:
 - **macOS**: `~/Library/Application Support/context-gatekeeper`
 - **Linux**: `~/.context-gatekeeper`
 
-#### Logging
-
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `CG_LOG_LEVEL` | Minimum log level: `trace`, `debug`, `info`, `warn`, `error` | `info` |
-| `CG_LOG_PRETTY` | Pretty-print JSON output (`true` or `1`) | - |
-| `CG_LOG_TO_FILE` | Enable file-based logging (`true` or `1`) | - |
-| `CG_LOG_FILE_PATH` | Custom log file path | `context-gatekeeper.log` |
-
 ### Runtime Configuration
 
 Use the `configure_llm` tool to set LLM settings at runtime:
@@ -237,22 +233,14 @@ Use the `configure_llm` tool to set LLM settings at runtime:
 configure_llm({
   provider: "openai",
   apiKey: "sk-...",
-  model: "gpt-4",
-  baseUrl: "https://api.openai.com/v1"
+  model: "gpt-4"
 });
 
 // Configure Ollama (local)
 configure_llm({
   provider: "ollama",
   model: "llama3.2",
-  baseUrl: "http://localhost:11434/api/generate"
-});
-
-// Configure Anthropic
-configure_llm({
-  provider: "anthropic",
-  apiKey: "sk-ant-...",
-  model: "claude-3-haiku"
+  baseUrl: "http://localhost:11434"
 });
 ```
 
@@ -260,77 +248,72 @@ configure_llm({
 
 ### Memory Operations
 
-| Tool | Parameters | Description | Required Token |
-|------|------------|-------------|----------------|
-| `memory_store` | `content`, `priority`, `project_tags?` | Store a new memory | write |
-| `memory_recall` | `query`, `limit?`, `search_mode?` | Recall memories | read |
-| `memory_search` | `query`, `limit?`, `project_tags?` | Full-text search | read |
-| `memory_anchor` | `memory_id`, `permanent?` | Anchor memory permanently | write |
-| `memory_stats` | - | Get memory statistics | read |
+| Tool | Description |
+|------|-------------|
+| `memory_store` | Store a new memory with priority |
+| `memory_recall` | Recall memories (4 search modes) |
+| `memory_search` | Full-text search memories |
+| `memory_anchor` | Anchor memory permanently |
+| `memory_stats` | Get memory statistics |
 
 ### Batch Operations
 
-| Tool | Parameters | Description | Required Token |
-|------|------------|-------------|----------------|
-| `memory_store_batch` | `memories[]` | Batch store memories | write |
-| `memory_delete_batch` | `memory_ids[]` | Batch delete memories | write |
+| Tool | Description |
+|------|-------------|
+| `memory_store_batch` | Batch store memories |
+| `memory_delete_batch` | Batch delete memories |
 
 ### Context Management
 
-| Tool | Parameters | Description | Required Token |
-|------|------------|-------------|----------------|
-| `memory_report_usage` | `used_tokens`, `max_tokens` | Report token usage | read |
-| `context_compress` | `target_ratio?` | Trigger context compression | write |
+| Tool | Description |
+|------|-------------|
+| `memory_report_usage` | Report token usage |
+| `context_compress` | Trigger context compression |
 
 ### Intelligent Recall (Phase 2)
 
-| Tool | Parameters | Description | Required Token |
-|------|------------|-------------|----------------|
-| `intelligent_recall` | `query`, `conversation_context?`, `relevance_threshold?`, `return_mode?`, `enable_soft_guidance?`, `enable_hard_check?` | MemGate-style relevance recall | read |
+| Tool | Description |
+|------|-------------|
+| `intelligent_recall` | MemGate-style relevance recall |
 
 ### Constraint Extraction (Phase 1)
 
-| Tool | Parameters | Description | Required Token |
-|------|------------|-------------|----------------|
-| `memory_extract` | `conversation_turns[]`, `extract_mode?`, `min_confidence?` | Extract constraints from conversations | read |
+| Tool | Description |
+|------|-------------|
+| `memory_extract` | Extract constraints from conversations |
 
 ### Dual-Mode Execution (Phase 3)
 
-| Tool | Parameters | Description | Required Token |
-|------|------------|-------------|----------------|
-| `dual_mode_execute` | `action`, `context?`, `mode?`, `soft_guidance_style?`, `hard_threshold?` | Validate actions with dual mode | read (soft) / write (hard) |
+| Tool | Description |
+|------|-------------|
+| `dual_mode_execute` | Validate actions with dual mode |
 
 ### Session Management
 
-| Tool | Parameters | Description | Required Token |
-|------|------------|-------------|----------------|
-| `session_store` | `key`, `value`, `scope?`, `ttl?` | Store session data | write |
-| `session_get` | `key`, `scope?` | Get session data | read |
-| `session_list` | `scope?` | List session keys | read |
-| `session_delete` | `key`, `scope?` | Delete session data | write |
+| Tool | Description |
+|------|-------------|
+| `session_store` | Store session data |
+| `session_get` | Get session data |
+| `session_list` | List session keys |
+| `session_delete` | Delete session data |
 
-### Configuration
+### Configuration & Infrastructure
 
-| Tool | Parameters | Description | Required Token |
-|------|------------|-------------|----------------|
-| `configure_llm` | `provider`, `apiKey?`, `model?`, `baseUrl?` | Configure LLM provider | write |
-| `after_chain_configure` | `action`, `chain_name?`, `enabled?` | Configure after-chain orchestration | write |
-| `project_create` | `name`, `description?` | Create a project | write |
+| Tool | Description |
+|------|-------------|
+| `configure_llm` | Configure LLM provider |
+| `after_chain_configure` | Configure after-chain orchestration |
+| `project_create` | Create a project |
+| `db_flush` | Flush in-memory DB to disk |
+| `watchdog_manage` | Manage watchdog tokens |
 
 ### GDPR Compliance
 
-| Tool | Parameters | Description | Required Token |
-|------|------------|-------------|----------------|
-| `gdpr_export` | `user_id?` | Export all memories as JSON | write |
-| `gdpr_delete` | `memory_id?`, `user_id?` | Delete memories | write |
-| `data_summary` | `user_id?` | Get data summary | read |
-
-### Infrastructure
-
-| Tool | Parameters | Description | Required Token |
-|------|------------|-------------|----------------|
-| `db_flush` | - | Flush in-memory DB to disk | write |
-| `watchdog_manage` | `action`, `token_type?` | Manage watchdog tokens | write |
+| Tool | Description |
+|------|-------------|
+| `gdpr_export` | Export all memories as JSON |
+| `gdpr_delete` | Delete memories |
+| `data_summary` | Get data summary |
 
 ### Search Modes
 
@@ -343,14 +326,38 @@ The `memory_recall` tool supports four search modes:
 | `hybrid` | Combines keyword + semantic | Balanced accuracy |
 | `bm25` | Okapi BM25 ranking | Text retrieval |
 
+### After-Chain Configuration
+
+```typescript
+// List all chains
+after_chain_configure({ action: "list_chains" });
+
+// Disable a chain
+after_chain_configure({
+  action: "toggle_chain",
+  chain_name: "store-then-extract",
+  enabled: false
+});
+
+// Register a custom chain
+after_chain_configure({
+  action: "register_chain",
+  chain_config: {
+    name: "store-then-recall",
+    triggerTool: "memory_store",
+    followupTool: "memory_recall",
+    async: true
+  }
+});
+```
+
 ## Architecture
 
 ### System Overview
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│ MCP Agent │
-│ (Cursor / Claude / Cline / Continue / Claude Code) │
+│ MCP Agent (Cursor / Claude / Cline / Continue / Claude Code) │
 └─────────────────────────┬───────────────────────────────────────┘
   │ MCP Protocol
   ▼
@@ -401,28 +408,6 @@ The Watchdog security model provides token-based access control:
 └──────────────────────────────────────────────────────────────────┘
 ```
 
-### After-Chain Flow
-
-After-Chain enables automatic tool chaining after tool execution:
-
-```
-┌──────────────────────────────────────────────────────────────────┐
-│ After-Chain Predefined Chains: │
-├──────────────────────────────────────────────────────────────────┤
-│ │
-│ store-then-extract: │
-│   memory_store ──▶ memory_extract │
-│ │
-│ batch-store-then-extract: │
-│   memory_store_batch ──▶ memory_extract │
-│ │
-│ session-store-then-extract: │
-│   session_store ──▶ memory_extract │
-│ │
-│ Agents can configure chains at runtime via after_chain_configure │
-└──────────────────────────────────────────────────────────────────┘
-```
-
 ### Directory Structure
 
 ```
@@ -433,8 +418,8 @@ src/
 │       ├── memory-store.ts
 │       ├── memory-recall.ts
 │       ├── memory-extract.ts     # Phase 1: AutoSkill
-│       ├── intelligent-recall.ts # Phase 2: MemGate
-│       ├── dual-mode-execute.ts  # Phase 3: MPR
+│       ├── intelligent-recall.ts  # Phase 2: MemGate
+│       ├── dual-mode-execute.ts   # Phase 3: MPR
 │       └── ...
 ├── schema/           # Database schema & operations
 ├── services/         # Business logic
@@ -447,111 +432,6 @@ src/
 │   ├── after-chain.ts # Tool chaining
 │   └── logger.ts     # Structured JSON logging
 └── models/          # Type definitions
-```
-
-## Priority System
-
-Memories are assigned priorities that determine retention during compression:
-
-| Priority | Description | Retention Score | Use Cases |
-|----------|-------------|----------------|-----------|
-| `anchored` | Permanent (never compressed) | 1.0 | Critical rules, project constraints |
-| `constraint` | Rules and requirements | 0.8 | API conventions, code standards |
-| `decision` | Design decisions | 0.6 | Architecture choices, selected approaches |
-| `preference` | User preferences | 0.4 | Coding style, workflow preferences |
-| `fact` | Facts and context | 0.2 | Project details, historical context |
-
-## Usage Examples
-
-### Example 1: Project Onboarding
-
-Onboarding a new project with constraints:
-
-```typescript
-// Store project-level constraints
-memory_store({
-  content: "Project uses Monorepo with pnpm workspaces",
-  priority: "fact",
-  project_tags: ["project-setup"]
-});
-
-memory_store({
-  content: "Always run tests before committing (pre-commit hook enforces)",
-  priority: "constraint",
-  project_tags: ["workflow"]
-});
-
-// Extract from initial conversation
-memory_extract({
-  conversation_turns: [
-    { role: "user", content: "We use pnpm workspaces for this monorepo" },
-    { role: "assistant", content: "I'll configure the workspace setup" },
-    { role: "user", content: "And we prefer using tRPC for API communication" }
-  ],
-  extract_mode: "all",
-  min_confidence: 0.6
-});
-```
-
-### Example 2: Intelligent Recall for Code Generation
-
-Using intelligent recall when generating code:
-
-```typescript
-// Before writing code, recall relevant context
-const relevant = intelligent_recall({
-  query: "API authentication patterns",
-  conversation_context: "Building a new REST endpoint for user profile",
-  relevance_threshold: 0.05,
-  return_mode: "all",
-  enable_soft_guidance: true,
-  enable_hard_check: true
-});
-```
-
-### Example 3: Dual-Mode Action Validation
-
-Validating an action against stored constraints:
-
-```typescript
-// Validate before executing an action
-const validation = dual_mode_execute({
-  action: "Use `var` keyword for this loop variable",
-  context: "Writing a for loop",
-  mode: "dual",
-  soft_guidance_style: "concise",
-  hard_threshold: 0.5
-});
-
-// Response includes:
-// - soft_guidance: Suggestions for better approach
-// - hard_admissibility: Whether action passes/fails constraints
-// - violations: List of broken rules with suggestions
-```
-
-### Example 4: After-Chain Configuration
-
-```typescript
-// List all chains
-after_chain_configure({ action: "list_chains" });
-
-// Disable a chain
-after_chain_configure({
-  action: "toggle_chain",
-  chain_name: "store-then-extract",
-  enabled: false
-});
-
-// Register a custom chain
-after_chain_configure({
-  action: "register_chain",
-  chain_config: {
-    name: "store-then-recall",
-    triggerTool: "memory_store",
-    followupTool: "memory_recall",
-    async: true
-  }
-});
 ```
 
 ## Troubleshooting
@@ -571,7 +451,6 @@ after_chain_configure({
 
 **Solution**:
 ```bash
-# Ensure DATA_DIR exists and is writable
 export DATA_DIR="/path/to/writable/directory"
 ```
 
@@ -624,9 +503,15 @@ memory_extract({
 
 ## Best Practices
 
-### Using Anchored Memories
+### Priority Assignment
 
-Anchor memories sparingly - they persist forever:
+| Priority | When to Use |
+|----------|-------------|
+| `anchored` | Critical rules that must never be violated |
+| `constraint` | API conventions, coding standards |
+| `decision` | Architecture choices, selected approaches |
+| `preference` | Coding style, workflow preferences |
+| `fact` | Project details, historical context |
 
 ```typescript
 // Good: Critical project-wide constraints
@@ -636,9 +521,9 @@ memory_store({
   project_tags: ["git-workflow"]
 });
 
-// Avoid: Common knowledge doesn't need anchoring
+// Avoid: Common knowledge
 memory_store({
-  content: "JavaScript uses camelCase", // Don't anchor obvious facts
+  content: "JavaScript uses camelCase",
   priority: "fact"
 });
 ```
@@ -648,7 +533,6 @@ memory_store({
 Use consistent, hierarchical tags:
 
 ```typescript
-// Pattern: category/subcategory
 memory_store({
   content: "Use React 18 for new features",
   project_tags: ["frontend:react", "version:18"]
@@ -676,32 +560,44 @@ context_compress({
 
 Use the principle of least privilege:
 
-```typescript
-// Main agent: read-only token
+```bash
+# Main agent: read-only token
 CG_READ_TOKEN="agent-read-token"
 
-// Admin agent: write token
+# Admin agent: write token
 CG_WRITE_TOKEN="admin-write-token"
 
-// Emergency: watchdog token (only for trusted processes)
+# Emergency: watchdog token (only for trusted processes)
 CG_WATCHDOG_TOKEN="emergency-token"
 ```
 
 ### When to Use Which Search Mode
 
 | Scenario | Recommended Mode |
-|----------|------------------|
+|----------|----------------|
 | Exact code snippet | `keyword` |
 | Known constraint text | `keyword` |
 | General concept recall | `semantic` or `hybrid` |
 | Diverse knowledge retrieval | `bm25` |
-| Precise term matching | `keyword` |
 | Intent-based recall | `hybrid` |
+
+### After-Chain Usage
+
+Enable automatic tool chaining to reduce manual tool calls:
+
+```typescript
+// After storing a memory, automatically extract constraints
+after_chain_configure({
+  action: "toggle_chain",
+  chain_name: "store-then-extract",
+  enabled: true
+});
+```
 
 ## Development
 
 ```bash
-# Clone and install dependencies
+# Install dependencies
 npm install
 
 # Build TypeScript
