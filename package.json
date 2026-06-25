@@ -1,0 +1,54 @@
+{
+  "name": "context-gatekeeper",
+  "version": "0.3.0",
+  "description": "MCP context management with intelligent constraint detection - universal installation for all MCP agents. Features: AutoSkill-style extraction, MemGate-style recall, MPR-style dual-mode execution",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "bin": {
+    "context-gatekeeper": "dist/mcp/server.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "lint": "eslint src --ext .ts"
+  },
+  "keywords": [
+    "mcp",
+    "context",
+    "agent",
+    "memory",
+    "constraint",
+    "autoskill",
+    "memgate",
+    "meta-policy",
+    "token",
+    "universal",
+    "cursor",
+    "claude",
+    "cline",
+    "continue"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "sql.js": "^1.10.0",
+    "uuid": "^9.0.0",
+    "zod": "^3.22.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.0",
+    "@types/sql.js": "^1.4.9",
+    "@types/uuid": "^9.0.0",
+    "@vitest/coverage-v8": "^1.6.1",
+    "typescript": "^5.3.0",
+    "vitest": "^1.2.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
