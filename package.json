@@ -1,6 +1,6 @@
 {
   "name": "context-gatekeeper",
-  "version": "0.3.1",
+  "version": "0.5.0",
   "description": "MCP context management with intelligent constraint detection. AutoSkill-style extraction, MemGate-style recall, MPR-style dual-mode execution. Universal install for Cursor / Claude Desktop / Claude Code / Cline / Continue.",
   "type": "module",
   "main": "dist/index.js",
