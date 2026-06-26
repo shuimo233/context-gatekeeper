@@ -11,6 +11,7 @@ MCP 上下文管理服务 - 让 AI Agent 始终保持在 **100k token 聪明区*
 - [安装配置](#安装配置)
 - [环境变量](#环境变量)
 - [工具参考](#工具参考)
+- [跨智能体兼容性测试](#跨智能体兼容性测试)
 - [架构设计](#架构设计)
 - [故障排查](#故障排查)
 - [最佳实践](#最佳实践)
@@ -18,29 +19,38 @@ MCP 上下文管理服务 - 让 AI Agent 始终保持在 **100k token 聪明区*
 
 ## 快速开始
 
-### 1. 安装
+### 1. 通过 CLI 一键安装
+
+CLI 自动检测本机所有支持的智能体，并把配置写入每个智能体期望的位置。无需手写 JSON。
 
 ```bash
-npm install -g context-gatekeeper
-npm run build
+# 安装到所有检测到的智能体（推荐）
+npx -y context-gatekeeper-cli install --all
+
+# 也可以指定单个或多个智能体
+npx -y context-gatekeeper-cli install cursor claude-desktop claude-code
+
+# 查看 CLI 会写入哪些位置
+npx -y context-gatekeeper-cli status
+
+# 稍后卸载
+npx -y context-gatekeeper-cli uninstall --all
 ```
 
-查看全局安装路径：
-```bash
-npm root -g
-```
+支持的智能体：`cursor`、`claude-desktop`、`cline`、`continue`、`claude-code`。
+加 `--local` 改为写入项目级配置（如 `./.cursor/mcp.json`）；`claude-desktop` 始终只能全局。
 
-### 2. 配置你的智能体
+### 2. 手动配置（进阶）
 
-将以下配置添加到你的 MCP 配置文件中：
+如果想自己写 JSON，所有智能体都接受同一启动命令（`npx -y context-gatekeeper`）。
 
 **Cursor**（`.cursor/mcp.json`）：
 ```json
 {
   "mcpServers": {
     "context-gatekeeper": {
-      "command": "node",
-      "args": ["<path-to>/node_modules/context-gatekeeper/dist/mcp/server.js"]
+      "command": "npx",
+      "args": ["-y", "context-gatekeeper"]
     }
   }
 }
@@ -51,8 +61,8 @@ npm root -g
 {
   "mcpServers": {
     "context-gatekeeper": {
-      "command": "node",
-      "args": ["<path-to>/node_modules/context-gatekeeper/dist/mcp/server.js"]
+      "command": "npx",
+      "args": ["-y", "context-gatekeeper"]
     }
   }
 }
@@ -63,12 +73,15 @@ npm root -g
 {
   "mcpServers": {
     "context-gatekeeper": {
-      "command": "node",
-      "args": ["<path-to>/node_modules/context-gatekeeper/dist/mcp/server.js"]
+      "command": "npx",
+      "args": ["-y", "context-gatekeeper"]
     }
   }
 }
 ```
+
+Windows 上 GUI 程序（Cursor、Claude Desktop）可能不继承 shell PATH。
+若 `npx` 找不到，可用 `cmd /c` 包裹，或使用 `where npx` 返回的绝对路径。
 
 ### 3. 设置环境变量（可选）
 
@@ -158,7 +171,11 @@ dual_mode_execute({
 
 ## 安装配置
 
-### 全局安装（推荐）
+### 一行命令通过 CLI 安装
+
+包自带 `context-gatekeeper-cli` 二进制，会自动检测本机所有支持的 MCP 智能体并把配置写入对应的配置文件。具体命令见 [快速开始](#快速开始)。卸载时运行 `context-gatekeeper-cli uninstall`。
+
+### 全局安装
 
 ```bash
 npm install -g context-gatekeeper
@@ -177,6 +194,23 @@ npm run build
 ```bash
 node dist/mcp/server.js --help
 ```
+
+### CLI 参考
+
+`context-gatekeeper-cli` 支持的子命令：
+
+```
+context-gatekeeper-cli install [agent ...] [--all] [--local] [--cwd <dir>]
+context-gatekeeper-cli uninstall [agent ...] [--all] [--local] [--cwd <dir>]
+context-gatekeeper-cli status [--local] [--cwd <dir>]
+context-gatekeeper-cli help
+```
+
+支持的智能体：`cursor`、`claude-desktop`、`cline`、`continue`、`claude-code`。
+
+- `--all` 作用于所有智能体；没有传位置参数且没有 `--all` 时会报错。
+- `--local` 写入项目级配置（如 `./.cursor/mcp.json`）；`claude-desktop` 仅全局，会被跳过。
+- `--cwd <dir>` 覆盖 `--local` 使用的项目根目录，便于在 CI 或 pre-commit hook 中脚本化安装。
 
 ## 环境变量
 
@@ -358,6 +392,98 @@ after_chain_configure({
   }
 });
 ```
+
+## 跨智能体兼容性测试
+
+除了单元测试，Context Gatekeeper 还附带一个端到端兼容性测试框架，在**与每个受支持的智能体运行时完全一致的 JSON-RPC 契约**下验证 MCP 服务器的行为。
+
+### 测试范围
+
+针对每个受支持的智能体，框架对全新 spawn 的 MCP 服务器进程执行四类场景：
+
+| 类别 | 覆盖内容 | 重要性 |
+|------|---------|--------|
+| **协议握手** | `initialize` + `tools/list` + 读工具调用 | 确认 MCP 服务器能启动、暴露 24 个工具、正确响应 JSON-RPC |
+| **CRUD** | `memory_store` -> `memory_recall` 往返、4 种搜索模式（`keyword`、`semantic`、`hybrid`、`auto`）、`memory_delete_batch`、`memory_anchor` | 验证智能体 stdio 传输下的核心存储路径 |
+| **After-Chain** | `after_chain_configure` list/toggle + `memory_store` 触发 `memory_extract` 后续 | 确认进程内链式执行器在跨智能体场景下正确连接 |
+| **Watchdog** | 4x4 权限矩阵：`no-token-strict`、`read-token`、`write-token`、`watchdog-token` 对读写探针 | 确保 Token 强制符合安全模型 |
+
+### 受支持的智能体
+
+- **Cursor** - 使用 `.cursor/mcp.json` 配置格式
+- **Claude Desktop** - 使用 `claude_desktop_config.json` 配置格式
+- **Cline** - VSCode workspace MCP 服务器配置
+- **Continue.dev** - 使用 `experimental.modelContextProtocolServers` 配置格式
+- **Claude Code** - 使用 `.mcp.json` 配置格式
+
+### 运行测试
+
+```bash
+# 对全部 5 个智能体运行
+npm run test:agents
+
+# 对单个智能体运行
+npm run test:agents -- cursor
+
+# 对子集运行
+npm run test:agents -- cursor cline claude-code
+```
+
+### 工作原理
+
+每个适配器将智能体的精确 MCP 配置 JSON 写入临时目录，然后使用智能体运行时使用的相同 `command` + `args` spawn MCP 服务器。框架通过 stdio 发送真实的 MCP JSON-RPC 消息 - 与 Cursor、Claude Desktop 等内部使用的线协议完全相同。
+
+关键设计选择：
+
+- **每个场景一个进程**：每个测试用例 spawn 新的 MCP 服务器，因此失败指向具体场景，而非共享状态
+- **隔离的 `DATA_DIR`**：每个智能体拥有独立的数据库目录，消除跨测试污染
+- **通过环境变量注入 Token**：`CG_READ_TOKEN`、`CG_WRITE_TOKEN`、`CG_WATCHDOG_TOKEN` 作为环境变量传递，与生产部署一致
+- **两种报告格式**：JSON 用于 CI 集成，Markdown 用于人工审查
+
+### 报告输出
+
+运行结束后，`scripts/reports/` 下生成两个文件：
+
+```
+scripts/reports/report-<timestamp>.json   # 机器可读
+scripts/reports/report-<timestamp>.md     # 人类可读
+```
+
+Markdown 报告按智能体分组：
+
+```
+## cursor
+Status: 14/14 passed
+
+| Tool | Success | Latency (ms) | Error |
+|------|---------|--------------|-------|
+| initialize+memory_stats | OK | 528 |  |
+| memory_store | OK | 9 |  |
+...
+```
+
+### 运行示例
+
+```
+[cursor] handshake ... handshakeOk=true tools=24 sampleOk=true 528ms
+[cursor] CRUD ... 8/8 scenarios passed (2508ms)
+[cursor] after-chain ... allOk=true 479ms
+[cursor] watchdog ... 4/4 cells ok (9985ms)
+
+[cross-agent-test] Summary:
+  Total:  70
+  Passed: 70
+  Failed: 0
+```
+
+### 添加新智能体
+
+1. 创建 `scripts/agents/my-agent.ts`，继承 `BaseAgentAdapter`
+2. 实现 `name` 和 `buildSpawnCommand()`（或重写 `spawnAgent()`）
+3. 添加静态 `buildMcpConfig(mcpBin)` 返回智能体的精确配置格式
+4. 在 `scripts/cross-agent-test.ts` 注册适配器
+
+框架通过 `buildAdapters()` 自动接入任何新适配器。
 
 ## 架构设计
 
@@ -610,8 +736,14 @@ npm install
 # 构建 TypeScript
 npm run build
 
-# 运行测试
+# 运行单元测试
 npm test
+
+# 跨智能体兼容性测试（在所有受支持的智能体中 spawn MCP 服务器）
+npm run test:agents
+
+# 针对单个智能体的跨智能体测试
+npm run test:agents -- cursor
 
 # 监视模式（自动重构建）
 npm run dev
@@ -619,6 +751,8 @@ npm run dev
 # 类型检查
 npm run lint
 ```
+
+详情参见[跨智能体兼容性测试](#跨智能体兼容性测试)，了解 `scripts/agents/` 和 `scripts/tests/` 下的测试框架。
 
 ## 技术灵感
 

@@ -13,6 +13,7 @@ Universal installation - works with **all MCP-compatible agents**: Cursor, Claud
 - [Installation](#installation)
 - [Configuration](#configuration)
 - [Tools Reference](#tools-reference)
+- [Cross-Agent Compatibility Tests](#cross-agent-compatibility-tests)
 - [Architecture](#architecture)
 - [Troubleshooting](#troubleshooting)
 - [Best Practices](#best-practices)
@@ -20,24 +21,41 @@ Universal installation - works with **all MCP-compatible agents**: Cursor, Claud
 
 ## Quick Start
 
-### 1. Install
+### 1. Install via the CLI
+
+The CLI auto-detects every supported agent on your machine and writes the
+right config block to each agent's expected config file. No manual JSON.
 
 ```bash
-npm install -g context-gatekeeper
-npm run build
+# Install to all detected agents (recommended)
+npx -y context-gatekeeper-cli install --all
+
+# Or pick specific agents
+npx -y context-gatekeeper-cli install cursor claude-desktop claude-code
+
+# See what the CLI would touch
+npx -y context-gatekeeper-cli status
+
+# Remove the entries later
+npx -y context-gatekeeper-cli uninstall --all
 ```
 
-### 2. Configure Your Agent
+Supported agents: `cursor`, `claude-desktop`, `cline`, `continue`, `claude-code`.
+Pass `--local` to write project-level configs (e.g. `./.cursor/mcp.json`) instead
+of the global ones. `claude-desktop` is always global-only.
 
-Add to your MCP config:
+### 2. Manual Configuration (advanced)
+
+If you prefer to write the JSON yourself, every supported agent accepts
+the same launch command (`npx -y context-gatekeeper`).
 
 **Cursor** (`.cursor/mcp.json`):
 ```json
 {
   "mcpServers": {
     "context-gatekeeper": {
-      "command": "node",
-      "args": ["<path-to>/node_modules/context-gatekeeper/dist/mcp/server.js"]
+      "command": "npx",
+      "args": ["-y", "context-gatekeeper"]
     }
   }
 }
@@ -48,8 +66,8 @@ Add to your MCP config:
 {
   "mcpServers": {
     "context-gatekeeper": {
-      "command": "node",
-      "args": ["<path-to>/node_modules/context-gatekeeper/dist/mcp/server.js"]
+      "command": "npx",
+      "args": ["-y", "context-gatekeeper"]
     }
   }
 }
@@ -60,12 +78,16 @@ Add to your MCP config:
 {
   "mcpServers": {
     "context-gatekeeper": {
-      "command": "node",
-      "args": ["<path-to>/node_modules/context-gatekeeper/dist/mcp/server.js"]
+      "command": "npx",
+      "args": ["-y", "context-gatekeeper"]
     }
   }
 }
 ```
+
+On Windows, GUI apps (Cursor, Claude Desktop) may not inherit shell PATH.
+If `npx` cannot be found, either wrap with `cmd /c` or use the absolute
+path returned by `where npx`.
 
 ### 3. Set Environment Variables (Optional)
 
@@ -155,7 +177,14 @@ dual_mode_execute({
 
 ## Installation
 
-### Global Installation (Recommended)
+### One-command install via the CLI
+
+The package ships with a `context-gatekeeper-cli` binary that detects
+every supported MCP agent on your machine and writes the right entry
+into each agent's config file. See [Quick Start](#quick-start) above
+for the commands. To uninstall, run `context-gatekeeper-cli uninstall`.
+
+### Global Installation
 
 ```bash
 npm install -g context-gatekeeper
@@ -179,6 +208,27 @@ npm run build
 ```bash
 node dist/mcp/server.js --help
 ```
+
+### CLI Reference
+
+The `context-gatekeeper-cli` command supports:
+
+```
+context-gatekeeper-cli install [agent ...] [--all] [--local] [--cwd <dir>]
+context-gatekeeper-cli uninstall [agent ...] [--all] [--local] [--cwd <dir>]
+context-gatekeeper-cli status [--local] [--cwd <dir>]
+context-gatekeeper-cli help
+```
+
+Supported agents: `cursor`, `claude-desktop`, `cline`, `continue`, `claude-code`.
+
+- `--all` targets every agent. With no positional args and no `--all`,
+  the CLI prints an error.
+- `--local` writes the project-level config (e.g. `./.cursor/mcp.json`)
+  instead of the global one. `claude-desktop` is always global and is
+  skipped under `--local`.
+- `--cwd <dir>` overrides the project root used for `--local`. Useful
+  for scripted setup in CI or pre-commit hooks.
 
 ## Configuration
 
@@ -350,6 +400,98 @@ after_chain_configure({
   }
 });
 ```
+
+## Cross-Agent Compatibility Tests
+
+Beyond unit tests, Context Gatekeeper ships with an end-to-end compatibility harness that verifies the MCP server behaves correctly under the **exact same JSON-RPC contract** that each supported agent runtime uses.
+
+### What It Tests
+
+For every supported agent, the harness exercises four scenario classes against a freshly spawned MCP server process:
+
+| Class | Coverage | Why It Matters |
+|-------|----------|----------------|
+| **Handshake** | `initialize` + `tools/list` + a sample read tool call | Confirms the MCP server boots, advertises 24 tools, and answers JSON-RPC correctly |
+| **CRUD** | `memory_store` -> `memory_recall` round-trip, all 4 search modes (`keyword`, `semantic`, `hybrid`, `auto`), `memory_delete_batch`, `memory_anchor` | Validates the core storage path works under the agent's stdio transport |
+| **After-Chain** | `after_chain_configure` list/toggle + `memory_store` triggering `memory_extract` followup | Confirms the in-process chain executor wires correctly across agent boundaries |
+| **Watchdog** | 4x4 permission matrix: `no-token-strict`, `read-token`, `write-token`, `watchdog-token` against read and write probes | Ensures token enforcement matches the security model |
+
+### Supported Agents
+
+- **Cursor** - uses `.cursor/mcp.json` shape
+- **Claude Desktop** - uses `claude_desktop_config.json` shape
+- **Cline** - VSCode workspace MCP server config
+- **Continue.dev** - uses `experimental.modelContextProtocolServers` shape
+- **Claude Code** - uses `.mcp.json` shape
+
+### Running the Tests
+
+```bash
+# Run against all 5 agents
+npm run test:agents
+
+# Run against a single agent
+npm run test:agents -- cursor
+
+# Run against a subset
+npm run test:agents -- cursor cline claude-code
+```
+
+### How It Works
+
+Each adapter writes the agent's exact MCP config JSON to a temp directory, then spawns the MCP server using the same `command` + `args` that the agent runtime would use. The harness sends real MCP JSON-RPC messages over stdio - the same wire protocol Cursor, Claude Desktop, etc. use internally.
+
+Key design choices:
+
+- **One process per scenario**: every test case spawns a fresh MCP server, so failures point to a specific scenario, not shared state
+- **Isolated `DATA_DIR`**: each agent gets its own database directory, eliminating cross-test contamination
+- **Token injection via env vars**: `CG_READ_TOKEN`, `CG_WRITE_TOKEN`, `CG_WATCHDOG_TOKEN` are passed as environment variables, matching production deployment
+- **Two report formats**: JSON for CI integration, Markdown for human review
+
+### Report Output
+
+After a run, two files appear under `scripts/reports/`:
+
+```
+scripts/reports/report-<timestamp>.json   # Machine-readable
+scripts/reports/report-<timestamp>.md     # Human-readable
+```
+
+The Markdown report groups results by agent:
+
+```
+## cursor
+Status: 14/14 passed
+
+| Tool | Success | Latency (ms) | Error |
+|------|---------|--------------|-------|
+| initialize+memory_stats | OK | 528 |  |
+| memory_store | OK | 9 |  |
+...
+```
+
+### Sample Run
+
+```
+[cursor] handshake ... handshakeOk=true tools=24 sampleOk=true 528ms
+[cursor] CRUD ... 8/8 scenarios passed (2508ms)
+[cursor] after-chain ... allOk=true 479ms
+[cursor] watchdog ... 4/4 cells ok (9985ms)
+
+[cross-agent-test] Summary:
+  Total:  70
+  Passed: 70
+  Failed: 0
+```
+
+### Adding a New Agent
+
+1. Create `scripts/agents/my-agent.ts` extending `BaseAgentAdapter`
+2. Implement `name` and `buildSpawnCommand()` (or override `spawnAgent()`)
+3. Add a static `buildMcpConfig(mcpBin)` that returns the agent's exact config shape
+4. Register the adapter in `scripts/cross-agent-test.ts`
+
+The harness automatically picks up any new adapter via `buildAdapters()`.
 
 ## Architecture
 
@@ -603,8 +745,14 @@ npm install
 # Build TypeScript
 npm run build
 
-# Run tests
+# Run unit tests
 npm test
+
+# Cross-agent compatibility tests (spawns MCP servers across all supported agents)
+npm run test:agents
+
+# Cross-agent tests for a single agent
+npm run test:agents -- cursor
 
 # Watch mode (auto-rebuild on changes)
 npm run dev
@@ -612,6 +760,8 @@ npm run dev
 # Type checking
 npm run lint
 ```
+
+See [Cross-Agent Compatibility Tests](#cross-agent-compatibility-tests) for details on the harness under `scripts/agents/` and `scripts/tests/`.
 
 ## Inspired By
 

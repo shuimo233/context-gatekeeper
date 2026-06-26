@@ -1,19 +1,34 @@
 {
   "name": "context-gatekeeper",
-  "version": "0.3.0",
-  "description": "MCP context management with intelligent constraint detection - universal installation for all MCP agents. Features: AutoSkill-style extraction, MemGate-style recall, MPR-style dual-mode execution",
+  "version": "0.3.1",
+  "description": "MCP context management with intelligent constraint detection. AutoSkill-style extraction, MemGate-style recall, MPR-style dual-mode execution. Universal install for Cursor / Claude Desktop / Claude Code / Cline / Continue.",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "bin": {
-    "context-gatekeeper": "dist/mcp/server.js"
+    "context-gatekeeper": "dist/mcp/server.js",
+    "context-gatekeeper-cli": "bin/context-gatekeeper-cli.js"
   },
+  "files": [
+    "dist",
+    "bin",
+    "README.md",
+    "README.zh.md",
+    "LICENSE"
+  ],
   "scripts": {
-    "build": "tsc",
+    "build": "tsc && node scripts/copy-for-publish.mjs",
+    "build:js": "tsc",
+    "copy:scripts": "node scripts/copy-for-publish.mjs",
+    "prepack": "npm run build",
+    "prepublishOnly": "npm run build",
+    "prepublish": "npm run build",
     "dev": "tsc --watch",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
+    "test:agents": "tsx scripts/cross-agent-test.ts",
+    "cli": "tsx scripts/cli.ts",
     "lint": "eslint src --ext .ts"
   },
   "keywords": [
@@ -32,8 +47,16 @@
     "cline",
     "continue"
   ],
-  "author": "",
+  "author": "context-gatekeeper contributors",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/shuimo233/context-gatekeeper.git"
+  },
+  "bugs": {
+    "url": "https://github.com/shuimo233/context-gatekeeper/issues"
+  },
+  "homepage": "https://github.com/shuimo233/context-gatekeeper#readme",
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
     "sql.js": "^1.10.0",
@@ -45,6 +68,7 @@
     "@types/sql.js": "^1.4.9",
     "@types/uuid": "^9.0.0",
     "@vitest/coverage-v8": "^1.6.1",
+    "tsx": "^4.22.4",
     "typescript": "^5.3.0",
     "vitest": "^1.2.0"
   },
