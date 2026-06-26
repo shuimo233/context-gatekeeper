@@ -25,7 +25,7 @@ export async function memoryStoreTool(input: MemoryStoreInputType): Promise<{ id
     expiresAt = new Date(Date.now() + input.expires_in_hours * 60 * 60 * 1000);
   }
   
-  const memory = memoryService.storeMemory({
+  const memory = await memoryService.storeMemory({
     content: input.content,
     priority: input.priority,
     projectTags: input.project_tags,

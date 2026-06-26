@@ -1,6 +1,13 @@
 /**
+ * DEPRECATED — use services/embedding-provider.ts instead.
+ * This module is kept for backward compatibility and is not used by the current codebase.
+ *
  * Vector provider abstraction for external embedding services
  * Supports multiple backends: local (TF-IDF), OpenAI, Ollama, Anthropic
+ *
+ * NOTE: dimension mismatch risk — LocalVectorProvider uses VECTOR_DIM (128)
+ * from embedding.ts, but memory.ts stores embeddings at 4096-dim (embedding-fixed).
+ * Do not use this module for new code.
  */
 
 import { VECTOR_DIM } from './embedding.js';

@@ -32,7 +32,7 @@ export async function memoryStoreBatchTool(input: MemoryStoreBatchInputType): Pr
         expiresAt = new Date(Date.now() + mem.expires_in_hours * 60 * 60 * 1000);
       }
       
-      const memory = memoryService.storeMemory({
+      const memory = await memoryService.storeMemory({
         content: mem.content,
         priority: mem.priority as any,
         projectTags: mem.project_tags,

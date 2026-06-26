@@ -26,6 +26,7 @@ import {
   memoryDeleteBatchTool,
   memorySearchTool,
   configureLLMTool,
+  configureEmbeddingTool,
   memoryStatsTool,
   memoryExtractTool,
   intelligentRecallTool,
@@ -42,6 +43,17 @@ async function initialize(): Promise<void> {
   try {
     await initDatabase();
     initSchema();
+
+    // Emit embedding provider status to help users configure it
+    const { getEmbeddingConfig } = await import('../services/embedding-provider.js');
+    const config = getEmbeddingConfig();
+    if (config.provider === 'tfidf') {
+      logger.warn(
+        '[context-gatekeeper] Embedding provider not configured — using built-in TF-IDF (zero-dependency). ' +
+        'Call configure_embedding to switch to openai/cohere/ollama for better semantic search quality.',
+        { provider: config.provider }
+      );
+    }
   } catch (error) {
     logger.error('Failed to initialize database', { error });
     throw error;
@@ -236,6 +248,26 @@ mcpServer.registerTool('configure_llm', {
     return { content: [{ type: 'text', text: JSON.stringify({ error: 'Permission denied', reason: permission.reason }) }] };
   }
   const result = await configureLLMTool({ provider, api_key, base_url, model });
+  return { content: [{ type: 'text', text: JSON.stringify(result) }] };
+});
+
+// Tool: configure_embedding
+mcpServer.registerTool('configure_embedding', {
+  description: 'Configure embedding provider for semantic search. Supports: tfidf (zero-dependency, default), openai, cohere, ollama.',
+  inputSchema: {
+    provider: z.enum(['tfidf', 'openai', 'cohere', 'ollama']).optional().describe('Embedding provider'),
+    openai_api_key: z.string().optional().describe('OpenAI API key'),
+    openai_model: z.string().optional().describe('OpenAI model (e.g., text-embedding-3-small)'),
+    openai_base_url: z.string().optional().describe('Custom base URL for OpenAI-compatible APIs'),
+    cohere_api_key: z.string().optional().describe('Cohere API key'),
+    token: z.string().optional().describe('Watchdog token for write operations')
+  }
+}, async ({ provider, openai_api_key, openai_model, openai_base_url, cohere_api_key, token }) => {
+  const permission = checkPermission('configure_embedding', token || '');
+  if (!permission.allowed) {
+    return { content: [{ type: 'text', text: JSON.stringify({ error: 'Permission denied', reason: permission.reason }) }] };
+  }
+  const result = await configureEmbeddingTool({ provider, openai_api_key, openai_model, openai_base_url, cohere_api_key });
   return { content: [{ type: 'text', text: JSON.stringify(result) }] };
 });
 

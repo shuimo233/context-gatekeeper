@@ -8,6 +8,7 @@ export { memoryStoreBatchTool, MemoryStoreBatchInput } from './memory-store-batc
 export { memoryDeleteBatchTool, MemoryDeleteBatchInput } from './memory-delete-batch.js';
 export { memorySearchTool, MemorySearchInput } from './memory-search.js';
 export { configureLLMTool, ConfigureLLMInput } from './configure-llm.js';
+export { configureEmbeddingTool, ConfigureEmbeddingInput } from './configure-embedding.js';
 export { memoryStatsTool } from './memory-stats.js';
 
 // Phase 1: AutoSkill-style constraint extraction

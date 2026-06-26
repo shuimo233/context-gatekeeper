@@ -32,7 +32,7 @@ export interface MemorySearchOutput {
 }
 
 export async function memorySearchTool(input: MemorySearchInputType): Promise<MemorySearchOutput> {
-  const memories = memoryService.recallMemories(
+  const memories = await memoryService.recallMemories(
     {
       query: input.query,
       projectTags: input.project_tags,

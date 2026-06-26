@@ -40,7 +40,7 @@ const DEFAULT_CONFIG: HNSWConfig = {
   efConstruction: 200,
   efSearch: 100,
   levelMult: 1 / Math.log(2),
-  dimension: 4096,
+  dimension: 4096, // will be overridden when initHNSWIndex is called
   metric: 'cosine'
 };
 
@@ -57,7 +57,23 @@ const hnswIndexes = new Map<string, {
  */
 export function initHNSWIndex(_indexName: string, config: Partial<HNSWConfig> = {}): HNSWConfig {
   const db = getDatabase();
-  const fullConfig = { ...DEFAULT_CONFIG, ...config };
+
+  let dimension = config.dimension ?? DEFAULT_CONFIG.dimension;
+  try {
+    const { getCurrentProvider } = require('./embedding-provider.js');
+    const provider = getCurrentProvider();
+    if (provider) {
+      dimension = provider.dimension;
+    }
+  } catch {
+    // provider not ready yet, use configured or default
+  }
+
+  const fullConfig: HNSWConfig = {
+    ...DEFAULT_CONFIG,
+    ...config,
+    dimension,
+  };
   
   db.run(`
     CREATE TABLE IF NOT EXISTS hnsw_nodes (
@@ -82,7 +98,22 @@ export function initHNSWIndex(_indexName: string, config: Partial<HNSWConfig> = 
  * Create a new HNSW index in memory
  */
 export function createHNSWIndex(indexName: string, config: Partial<HNSWConfig> = {}): HNSWConfig {
-  const fullConfig = { ...DEFAULT_CONFIG, ...config };
+  let dimension = config.dimension ?? DEFAULT_CONFIG.dimension;
+  try {
+    const { getCurrentProvider } = require('./embedding-provider.js');
+    const provider = getCurrentProvider();
+    if (provider) {
+      dimension = provider.dimension;
+    }
+  } catch {
+    // provider not ready yet
+  }
+
+  const fullConfig: HNSWConfig = {
+    ...DEFAULT_CONFIG,
+    ...config,
+    dimension,
+  };
   
   if (!hnswIndexes.has(indexName)) {
     hnswIndexes.set(indexName, {
@@ -215,6 +246,11 @@ export function insertHNSWNode(
 ): HNSWNode | null {
   const index = hnswIndexes.get(indexName);
   if (!index) return null;
+
+  // Warn on dimension mismatch (index may have been built with different provider)
+  if (vector.length !== index.config.dimension) {
+    index.config.dimension = vector.length;
+  }
   
   // Check if already exists
   if (index.memoryIndex.has(memoryId)) {
@@ -357,10 +393,8 @@ export function clearHNSWIndex(indexName: string): void {
  * Sync HNSW index with database (load persisted nodes)
  */
 export function syncHNSWFromDB(indexName: string, config: Partial<HNSWConfig> = {}): number {
-  const fullConfig = { ...DEFAULT_CONFIG, ...config };
-  
-  // Create index if not exists
-  createHNSWIndex(indexName, fullConfig);
+  // Omit dimension so createHNSWIndex resolves it from the current provider
+  createHNSWIndex(indexName, config);
   const index = hnswIndexes.get(indexName)!;
   
   const rows = query<{

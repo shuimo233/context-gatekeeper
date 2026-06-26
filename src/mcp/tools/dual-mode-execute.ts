@@ -303,7 +303,7 @@ export async function dualModeExecuteTool(input: DualModeExecuteInputType): Prom
   const fullQuery = context ? `${context}\n\nAction: ${action}` : action;
   
   // Retrieve relevant memories
-  const memories = memoryService.recallMemories({
+  const memories = await memoryService.recallMemories({
     query: fullQuery,
     projectTags: project_tags,
     limit: 20

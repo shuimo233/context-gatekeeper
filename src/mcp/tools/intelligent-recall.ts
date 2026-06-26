@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { getMemoryService } from '../../services/memory.js';
+import { getCurrentProvider } from '../../services/embedding-provider.js';
 
 /**
  * Intelligent recall with MemGate-style relevance scoring
@@ -62,29 +63,35 @@ export interface IntelligentRecallOutput {
  */
 function calculateMemGateScore(
   queryEmbedding: number[],
-  memoryEmbedding: number[],
+  memoryEmbedding: number[] | null,
   query: string,
   memoryContent: string
 ): { score: number; mask: number } {
   // 1. Cosine similarity (semantic)
-  const dotProduct = queryEmbedding.reduce((sum, q, i) => sum + q * memoryEmbedding[i], 0);
+  let dotProduct = 0;
+  if (memoryEmbedding) {
+    const len = Math.min(queryEmbedding.length, memoryEmbedding.length);
+    for (let i = 0; i < len; i++) {
+      dotProduct += queryEmbedding[i] * memoryEmbedding[i];
+    }
+  }
   
   // 2. Relevance mask (keyword overlap bonus)
   const queryWords = new Set(query.toLowerCase().split(/\s+/).filter(w => w.length > 2));
   const memoryWords = new Set(memoryContent.toLowerCase().split(/\s+/).filter(w => w.length > 2));
   const overlap = [...queryWords].filter(w => memoryWords.has(w)).length;
-  const mask = Math.min(overlap / Math.max(queryWords.size, 1), 1.0);
-  
+  const relevanceMask = Math.min(overlap / Math.max(queryWords.size, 1), 1.0);
+
   // 3. MLP-inspired interaction: [q, m, q*m]
   // Simplified: score = α * similarity + β * mask + γ * interaction
-  const interactionBonus = dotProduct * mask;
+  const interactionBonus = dotProduct * relevanceMask;
   const alpha = 0.6;
   const beta = 0.3;
   const gamma = 0.1;
-  
-  const score = alpha * dotProduct + beta * mask + gamma * interactionBonus;
-  
-  return { score: Math.max(0, Math.min(1, score)), mask };
+
+  const score = alpha * dotProduct + beta * relevanceMask + gamma * interactionBonus;
+
+  return { score: Math.max(0, Math.min(1, score)), mask: relevanceMask };
 }
 
 /**
@@ -193,7 +200,7 @@ export async function intelligentRecallTool(input: IntelligentRecallInputType): 
     : query;
   
   // Recall memories using the service
-  const memories = memoryService.recallMemories({
+  const memories = await memoryService.recallMemories({
     query: fullQuery,
     projectTags: project_tags,
     limit: limit * 2 // Get more candidates for filtering
@@ -201,12 +208,19 @@ export async function intelligentRecallTool(input: IntelligentRecallInputType): 
   
   // Score each memory using MemGate-style scoring
   const scoredMemories: RelevanceScore[] = [];
-  
+
+  const provider = getCurrentProvider();
+  const queryResult = await provider.embed(fullQuery);
+  const queryEmbedding = queryResult.vector;
+
+  const memoryEmbeddingResults = await Promise.all(
+    memories.map(async (m) => ({ id: m.id, result: await provider.embed(m.content) }))
+  );
+  const memoryEmbeddingMap = new Map(memoryEmbeddingResults.map(r => [r.id, r.result.vector]));
+
   for (const memory of memories) {
-    // Get embeddings (simplified - in production use actual embeddings)
-    const queryEmbedding = generateSimpleEmbedding(fullQuery);
-    const memoryEmbedding = generateSimpleEmbedding(memory.content);
-    
+    const memoryEmbedding = memoryEmbeddingMap.get(memory.id) ?? null;
+
     const { score, mask } = calculateMemGateScore(
       queryEmbedding,
       memoryEmbedding,
@@ -269,32 +283,4 @@ export async function intelligentRecallTool(input: IntelligentRecallInputType): 
       memgate_threshold: relevance_threshold
     }
   };
-}
-
-/**
- * Generate simple embedding for scoring (placeholder for real embeddings)
- */
-function generateSimpleEmbedding(text: string): number[] {
-  const dim = 128;
-  const vector = new Array(dim).fill(0);
-  
-  // Simple hash-based embedding
-  const words = text.toLowerCase().split(/\s+/);
-  for (let i = 0; i < words.length; i++) {
-    const word = words[i];
-    for (let j = 0; j < Math.min(word.length, 10); j++) {
-      const idx = (word.charCodeAt(j) * (j + 1) + i) % dim;
-      vector[idx] += 1 / (i + 1);
-    }
-  }
-  
-  // Normalize
-  const magnitude = Math.sqrt(vector.reduce((sum, val) => sum + val * val, 0));
-  if (magnitude > 0) {
-    for (let i = 0; i < vector.length; i++) {
-      vector[i] /= magnitude;
-    }
-  }
-  
-  return vector;
 }

@@ -25,7 +25,7 @@ import {
 import { insertHNSWNode, getHNSWIndex } from './hnsw-index.js';
 import { searchFullText, rebuildFullTextIndex } from '../schema/fulltext-search.js';
 import { calculatePriorityScore, isHighPriority } from '../utils/priority.js';
-import { generateFixedEmbedding, generateFixedQueryEmbedding } from '../services/embedding-fixed.js';
+import { getCurrentProvider } from '../services/embedding-provider.js';
 import { transaction } from '../utils/db.js';
 
 export type SearchMode = 'keyword' | 'semantic' | 'hybrid' | 'auto' | 'fulltext';
@@ -50,7 +50,7 @@ export class MemoryService {
     return { ...this.isolationContext };
   }
 
-  storeMemory(input: CreateMemoryInput, updatedBy?: string, options: MemoryStoreOptions = {}) {
+  async storeMemory(input: CreateMemoryInput, updatedBy?: string, options: MemoryStoreOptions = {}) {
     const isolation = options.isolation || this.isolationContext;
 
     if (options.useTransaction) {
@@ -67,23 +67,26 @@ export class MemoryService {
 
     const memoryInput = { ...input, ...isolation };
     const memory = createMemory(memoryInput, updatedBy);
-    const embedding = generateFixedEmbedding(input.content);
-    storeEmbedding(memory.id, input.content, embedding, 'fixed-tfidf', 'v1', 4096);
 
-    // 增量索引：新记忆同步写入 HNSW（懒构建，无需全量重建）
+    const provider = getCurrentProvider();
+    const result = await provider.embed(input.content);
+    const modelName = `${provider.name}-${provider.dimension}d`;
+
+    storeEmbedding(memory.id, input.content, result.vector, modelName, 'v1', result.dimension);
+
     try {
       const idx = getHNSWIndex('default');
       if (idx) {
-        insertHNSWNode('default', memory.id, embedding, input.projectTags || []);
+        insertHNSWNode('default', memory.id, result.vector, input.projectTags || []);
       }
     } catch {
-      // HNSW 索引未初始化，静默跳过
+      // HNSW index not initialised, skip silently
     }
 
     return memory;
   }
 
-  storeMemoryWithTransaction(input: CreateMemoryInput, updatedBy?: string, isolation?: IsolationContext) {
+  async storeMemoryWithTransaction(input: CreateMemoryInput, updatedBy?: string, isolation?: IsolationContext) {
     const effectiveIsolation = isolation || this.isolationContext;
     const contentHash = computeContentHash(input.content);
     const existing = findDuplicateByHash(contentHash, effectiveIsolation);
@@ -93,25 +96,29 @@ export class MemoryService {
       return existing;
     }
 
+    const provider = getCurrentProvider();
+    const result = await provider.embed(input.content);
+    const modelName = `${provider.name}-${provider.dimension}d`;
+
     return transaction(() => {
       const memoryInput = { ...input, ...effectiveIsolation };
       const memory = createMemory(memoryInput, updatedBy);
-      const embedding = generateFixedEmbedding(input.content);
-      storeEmbedding(memory.id, input.content, embedding, 'fixed-tfidf', 'v1', 4096);
-      // 增量索引
+      storeEmbedding(memory.id, input.content, result.vector, modelName, 'v1', result.dimension);
+
       try {
         const idx = getHNSWIndex('default');
         if (idx) {
-          insertHNSWNode('default', memory.id, embedding, input.projectTags || []);
+          insertHNSWNode('default', memory.id, result.vector, input.projectTags || []);
         }
       } catch {
-        // 静默跳过
+        // silent
       }
+
       return memory;
     });
   }
 
-  recallMemories(input: RecallMemoryInput, searchMode: SearchMode = 'auto') {
+  async recallMemories(input: RecallMemoryInput, searchMode: SearchMode = 'auto') {
     const { query, projectTags, limit = 10, userId, agentId, projectId } = input;
     const isolation = { userId, agentId, projectId };
 
@@ -128,8 +135,9 @@ export class MemoryService {
         break;
       case 'semantic':
         try {
-          const queryEmbedding = generateFixedQueryEmbedding(query);
-          const results = searchMemoriesVector(queryEmbedding, projectTags, limit, 0.1, isolation);
+          const provider = getCurrentProvider();
+          const result = await provider.embed(query);
+          const results = searchMemoriesVector(result.vector, projectTags, limit, 0.1, isolation);
           memories = results.map(r => ({ ...r, similarity: r.similarity })) as ReturnType<typeof searchMemoriesOriginal>;
         } catch {
           memories = searchMemoriesBM25(query, projectTags, limit, isolation);
@@ -137,8 +145,9 @@ export class MemoryService {
         break;
       case 'hybrid':
         try {
-          const queryEmbedding = generateFixedQueryEmbedding(query);
-          const results = searchMemoriesHybrid(query, queryEmbedding, projectTags, limit, 0.5, 0.5, isolation);
+          const provider = getCurrentProvider();
+          const result = await provider.embed(query);
+          const results = searchMemoriesHybrid(query, result.vector, projectTags, limit, 0.5, 0.5, isolation);
           memories = results as unknown as ReturnType<typeof searchMemoriesOriginal>;
         } catch {
           memories = searchMemoriesBM25(query, projectTags, limit, isolation);
@@ -206,7 +215,7 @@ export class MemoryService {
     return updateMemory(id, { anchored: true }, undefined, this.isolationContext);
   }
 
-  updateMemoryContent(id: string, content: string, updatedBy?: string, options: MemoryStoreOptions = {}) {
+  async updateMemoryContent(id: string, content: string, updatedBy?: string, options: MemoryStoreOptions = {}) {
     const isolation = options.isolation || this.isolationContext;
 
     if (options.useTransaction) {
@@ -214,18 +223,25 @@ export class MemoryService {
     }
 
     const memory = updateMemory(id, { content }, updatedBy, isolation);
-    const embedding = generateFixedEmbedding(content);
-    storeEmbedding(id, content, embedding, 'fixed-tfidf', 'v1', 4096);
+
+    const provider = getCurrentProvider();
+    const result = await provider.embed(content);
+    const modelName = `${provider.name}-${provider.dimension}d`;
+    storeEmbedding(id, content, result.vector, modelName, 'v1', result.dimension);
 
     return memory;
   }
 
-  updateMemoryContentWithTransaction(id: string, content: string, updatedBy?: string, isolation?: IsolationContext) {
+  async updateMemoryContentWithTransaction(id: string, content: string, updatedBy?: string, isolation?: IsolationContext) {
     const effectiveIsolation = isolation || this.isolationContext;
+
+    const provider = getCurrentProvider();
+    const result = await provider.embed(content);
+    const modelName = `${provider.name}-${provider.dimension}d`;
+
     return transaction(() => {
       const memory = updateMemory(id, { content }, updatedBy, effectiveIsolation);
-      const embedding = generateFixedEmbedding(content);
-      storeEmbedding(id, content, embedding, 'fixed-tfidf', 'v1', 4096);
+      storeEmbedding(id, content, result.vector, modelName, 'v1', result.dimension);
       return memory;
     });
   }

@@ -31,7 +31,7 @@ export interface MemoryRecallOutput {
 }
 
 export async function memoryRecallTool(input: MemoryRecallInputType): Promise<MemoryRecallOutput> {
-  const memories = memoryService.recallMemories({
+  const memories = await memoryService.recallMemories({
     query: input.query,
     projectTags: input.project_tags,
     limit: input.limit,
